@@ -22,3 +22,4 @@ Future works
 ------------
 
  * Custom time suffix formats
+ * Autorotate at midnight even if no write is happening
