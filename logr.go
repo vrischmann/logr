@@ -2,6 +2,7 @@ package logr
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -174,16 +175,19 @@ func (w *RotatingWriter) rotate() error {
 		}
 
 		if w.compress {
-			if err := w.compressFile(destName); err != nil {
-				return err
-			}
+			go func() {
+				if err := w.compressFile(destName); err != nil {
+					fmt.Printf("unable to compress file '%s'. err=%v", destName, err)
+					return
+				}
 
-			// no error to compress the data and to rename it
-			// to its last filename, we can now safely remove
-			// the original uncompressed file.
-			if err := os.Remove(destName); err != nil {
-				return err
-			}
+				// no error to compress the data and to rename it
+				// to its last filename, we can now safely remove
+				// the original uncompressed file.
+				if err := os.Remove(destName); err != nil {
+					fmt.Printf("unable to remove file '%s'. err=%v", destName, err)
+				}
+			}()
 		}
 
 		w.startDate = time.Now().Truncate(time.Hour * 24)
