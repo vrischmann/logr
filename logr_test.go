@@ -97,6 +97,9 @@ func TestRotateWithCompression(t *testing.T) {
 	newData := readFile(t, f.Name())
 	require.Nil(t, checkEqual(t, newData, 0xFE))
 
+	// Need to wait a little because the gzipping is done in the background
+	time.Sleep(500 * time.Millisecond)
+
 	{
 		f, err := os.Open(f.Name() + "." + now.Format(logr.TimeFormat) + ".gz")
 		require.Nil(t, err)
