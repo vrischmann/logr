@@ -1,6 +1,9 @@
 package logr
 
 import (
+	"compress/gzip"
+	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,6 +26,7 @@ type RotatingWriter struct {
 	timeFormat string
 	prefix     bool
 	daily      bool
+	compress   bool
 	maxSize    int64
 }
 
@@ -34,6 +38,14 @@ func NewWriter(filename string) (*RotatingWriter, error) {
 	}
 
 	return NewWriterFromFile(file)
+}
+
+// NewWriterWithCompression creates a new file and returns a rotating writer compressing
+// the old files.
+func NewWriterWithCompression(filename string) (*RotatingWriter, error) {
+	w, err := NewWriter(filename)
+	w.compress = true
+	return w, err
 }
 
 // NewWriterFromFile creates a rotating writer using the provided file as base.
@@ -53,6 +65,14 @@ func NewWriterFromFile(file *os.File) (*RotatingWriter, error) {
 	}
 
 	return w, nil
+}
+
+// NewWriterFromFileWithCompression is the same as NewWriteFromFile but with
+// compression enabled.
+func NewWriterFromFileWithCompression(file *os.File) (*RotatingWriter, error) {
+	w, err := NewWriterFromFile(file)
+	w.compress = true
+	return w, err
 }
 
 // readCurrentSize reads the current size from the file
@@ -153,6 +173,19 @@ func (w *RotatingWriter) rotate() error {
 			return err
 		}
 
+		if w.compress {
+			if err := w.compressFile(destName); err != nil {
+				return err
+			}
+
+			// no error to compress the data and to rename it
+			// to its last filename, we can now safely remove
+			// the original uncompressed file.
+			if err := os.Remove(destName); err != nil {
+				return err
+			}
+		}
+
 		w.startDate = time.Now().Truncate(time.Hour * 24)
 	}
 
@@ -167,6 +200,56 @@ func (w *RotatingWriter) rotate() error {
 	}
 
 	return nil
+}
+
+// compressFile compresses the file at destName into a file at destName.gz
+func (w *RotatingWriter) compressFile(destName string) error {
+	var rotated, tmpFile *os.File
+	var err error
+
+	// open the rotated file.
+	if rotated, err = os.Open(destName); err != nil {
+		return err
+	}
+
+	defer rotated.Close()
+
+	// compress
+	if tmpFile, err = w.gzip(rotated); err != nil {
+		return err
+	}
+
+	defer tmpFile.Close()
+
+	// force close just before renaming
+	rotated.Close()
+
+	// rename the gzipped file
+	if err := os.Rename(tmpFile.Name(), destName+".gz"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *RotatingWriter) gzip(src *os.File) (*os.File, error) {
+	var tmpFile *os.File
+	var err error
+
+	// create a tmp file which will be the rotated one but compressed.
+	if tmpFile, err = ioutil.TempFile(os.TempDir(), "tmp"); err != nil {
+		return nil, err
+	}
+
+	// compression
+	z := gzip.NewWriter(tmpFile)
+	defer z.Close()
+	_, err = io.Copy(z, src)
+	if err != nil {
+		return nil, err
+	}
+
+	return tmpFile, nil
 }
 
 func (w *RotatingWriter) makeDestName() string {

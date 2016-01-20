@@ -22,4 +22,3 @@ Future works
 ------------
 
  * Custom time suffix formats
- * Optional compression of the rotated file
