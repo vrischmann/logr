@@ -9,17 +9,25 @@ logr is a simplistic type which implements log rotating, suitable for use with G
 Usage
 -----
 
-Use it like this.
+Daily rotation.
 
 ```go
-w := logr.NewWriter("/var/log/mylog.log")
+w := logr.NewWriter("/var/log/mylog.log", &logr.Options{
+    RotateDaily: true,
+})
 log.SetOutput(w)
 
 log.Println("foobar")
 ```
 
-Future works
-------------
+Maximum size rotation.
 
- * Custom time suffix formats
- * Autorotate at midnight even if no write is happening
+```go
+// Rotate every 500 Mib.
+w := logr.NewWriter("/var/log/mylog.log", &logr.Options{
+    MaximumSize: 1024 * 1024 * 500,
+})
+log.SetOutput(w)
+
+log.Println("foobar")
+```
