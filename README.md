@@ -31,3 +31,8 @@ log.SetOutput(w)
 
 log.Println("foobar")
 ```
+
+Future work
+-----------
+
+  * Background rotation
