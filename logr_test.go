@@ -68,6 +68,7 @@ func TestRotateDaily(t *testing.T) {
 	w.lastMod = w.lastMod.Add(-25 * time.Hour)
 
 	rotatedName := makeDestName(f.Name(), w.lastMod, opts)
+	defer os.Remove(rotatedName)
 
 	// second write - will write to the new file because time.Now() - w.lastMod < 24h
 	n, err = w.Write(makeBuf('B', 30))
@@ -112,7 +113,8 @@ func TestRotateMaximumSize(t *testing.T) {
 	require.Equal(t, 110, len(data))
 	require.Nil(t, checkEqual(data[80:], 'B'))
 
-	rotatedName := makeDestName(f.Name(), time.Now(), opts)
+	rotatedName := makeDestName(f.Name(), getMidnightFromDate(time.Now()), opts)
+	defer os.Remove(rotatedName)
 
 	// third write - will trigger a rotation
 	n, err = w.Write(makeBuf('C', 50))
@@ -161,7 +163,7 @@ func TestRotateWithCompression(t *testing.T) {
 	require.Equal(t, 110, len(data))
 	require.Nil(t, checkEqual(data[80:], 'B'))
 
-	rotatedName := makeDestName(f.Name(), time.Now(), opts)
+	rotatedName := makeDestName(f.Name(), getMidnightFromDate(time.Now()), opts)
 
 	// third write - will trigger a rotation
 	n, err = w.Write(makeBuf('C', 50))
