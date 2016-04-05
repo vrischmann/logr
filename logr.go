@@ -67,6 +67,11 @@ func NewWriterFromFile(file *os.File, opts *Options) (*RotatingWriter, error) {
 	return w, nil
 }
 
+func getMidnightFromDate(t time.Time) time.Time {
+	yy, mm, dd := t.Date()
+	return time.Date(yy, mm, dd, 0, 0, 0, 0, t.Location())
+}
+
 // readCurrentSize reads the current size from the file
 func (w *RotatingWriter) readMetadata() error {
 	fi, err := w.file.Stat()
@@ -75,7 +80,14 @@ func (w *RotatingWriter) readMetadata() error {
 	}
 
 	w.currentSize = fi.Size()
-	w.lastMod = fi.ModTime()
+	// Get the last modification date, rounded down to midnight from that day.
+	// The idea is, if we start the writer at say 4pm, we still want to
+	// do the rotation at midnight the next day, and not 24h later at 4pm.
+	// To do this, we get midnight from the day of the last modification date.
+	//
+	// Now, if the file is older than 1 day, it will be rotated right away, but that's
+	// not really a problem.
+	w.lastMod = getMidnightFromDate(fi.ModTime())
 
 	return nil
 }
@@ -166,7 +178,11 @@ func (w *RotatingWriter) rotate() error {
 	}
 
 	// 5. reset the last mod date.
-	w.lastMod = time.Now()
+	//
+	// We know for sure we're the following day at this point,
+	// so it's safe to assume time.Now() will return the date from the following day.
+	// We reset the last mod date to the following day, midnight.
+	w.lastMod = getMidnightFromDate(time.Now())
 
 	// 6. open a new file at the original path.
 	file, err := os.OpenFile(original, os.O_RDWR|os.O_CREATE, 0600)
