@@ -9,21 +9,32 @@ import (
 )
 
 func TestMakeDestName(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Hour * 24)
+	now := time.Now().Truncate(time.Hour * 24)
 
-	rw := RotatingWriter{
-		filename:  "/var/log/logr.log",
-		prefix:    false,
-		startDate: now,
-	}
-	n := rw.makeDestName()
-
-	expected := fmt.Sprintf("/var/log/logr.log.%s", now.Format(TimeFormat))
+	// No options
+	n := makeDestName("/var/log/main.log", now, &Options{})
+	expected := fmt.Sprintf("/var/log/main.log.%s", now.Format(TimeFormat))
 	require.Equal(t, expected, n)
 
-	rw.prefix = true
-	n = rw.makeDestName()
+	// Time as prefix
+	n = makeDestName("/var/log/main.log", now, &Options{
+		TimeFormatAsPrefix: true,
+	})
+	expected = fmt.Sprintf("/var/log/main.%s.log", now.Format(TimeFormat))
+	require.Equal(t, expected, n)
 
-	expected = fmt.Sprintf("/var/log/logr.%s.log", now.Format(TimeFormat))
+	// Custom time format
+	n = makeDestName("/var/log/main.log", now, &Options{
+		TimeFormat: "2006__01__02",
+	})
+	expected = fmt.Sprintf("/var/log/main.log.%s", now.Format("2006__01__02"))
+	require.Equal(t, expected, n)
+
+	// Time as prefix & custom time format
+	n = makeDestName("/var/log/main.log", now, &Options{
+		TimeFormatAsPrefix: true,
+		TimeFormat:         "2006__01__02",
+	})
+	expected = fmt.Sprintf("/var/log/main.%s.log", now.Format("2006__01__02"))
 	require.Equal(t, expected, n)
 }

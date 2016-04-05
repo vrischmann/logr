@@ -1,4 +1,4 @@
-package logr_test
+package logr
 
 import (
 	"bytes"
@@ -6,16 +6,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vrischmann/logr"
 )
 
-func makeBuf(b byte) []byte {
-	buf := make([]byte, 1024)
+func makeBuf(b byte, n int) []byte {
+	buf := make([]byte, n)
 	for i := 0; i < len(buf); i++ {
 		buf[i] = b
 	}
@@ -30,7 +28,14 @@ func readFile(t testing.TB, filename string) []byte {
 	return data
 }
 
-func checkEqual(t testing.TB, buf []byte, b byte) error {
+func makeTempFile(t testing.TB) *os.File {
+	f, err := ioutil.TempFile("", "logr_test")
+	require.Nil(t, err)
+
+	return f
+}
+
+func checkEqual(buf []byte, b byte) error {
 	for _, v := range buf {
 		if v != b {
 			return fmt.Errorf("%v != %v", v, b)
@@ -40,144 +45,148 @@ func checkEqual(t testing.TB, buf []byte, b byte) error {
 	return nil
 }
 
-func TestRotateMaxSize(t *testing.T) {
-	f, err := ioutil.TempFile(os.TempDir(), "logr")
+func removeFile(t testing.TB, f *os.File, w *RotatingWriter) {
+	require.Nil(t, w.file.Close())
+	require.Nil(t, os.Remove(f.Name()))
+}
+
+func TestRotateDaily(t *testing.T) {
+	f := makeTempFile(t)
+	opts := &Options{RotateDaily: true}
+
+	w, err := NewWriterFromFile(f, opts)
 	require.Nil(t, err)
 
-	rw, err := logr.NewWriterFromFile(f)
+	defer removeFile(t, f, w)
+
+	// first write - will always write to the original file
+	n, err := w.Write(makeBuf('A', 80))
+	require.Nil(t, err)
+	require.Equal(t, 80, n)
+
+	// force the last mod date to yesterday to trigger a rotation
+	w.lastMod = w.lastMod.Add(-25 * time.Hour)
+
+	rotatedName := makeDestName(f.Name(), w.lastMod, opts)
+
+	// second write - will write to the new file because time.Now() - w.lastMod < 24h
+	n, err = w.Write(makeBuf('B', 30))
+	require.Nil(t, err)
+	require.Equal(t, 30, n)
+
+	// recheck the rotated file to see if it changed
+	data := readFile(t, rotatedName)
+	require.Equal(t, 80, len(data))
+	require.Nil(t, checkEqual(data, 'A'))
+
+	// check the new file
+	data = readFile(t, f.Name())
+	require.Equal(t, 30, len(data))
+	require.Nil(t, checkEqual(data, 'B'))
+}
+
+func TestRotateMaximumSize(t *testing.T) {
+	f := makeTempFile(t)
+	opts := &Options{MaximumSize: 100}
+
+	w, err := NewWriterFromFile(f, opts)
 	require.Nil(t, err)
 
-	now := time.Now()
-	{
-		n, err := rw.Write(makeBuf(0xFF))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
+	defer removeFile(t, f, w)
 
-		rw.MaxSize(512)
+	// first write - will always write to the original file
+	n, err := w.Write(makeBuf('A', 80))
+	require.Nil(t, err)
+	require.Equal(t, 80, n)
 
-		n, err = rw.Write(makeBuf(0xFE))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
-	}
+	data := readFile(t, f.Name())
+	require.Equal(t, 80, len(data))
+	require.Nil(t, checkEqual(data, 'A'))
 
-	newData := readFile(t, f.Name())
-	require.Nil(t, checkEqual(t, newData, 0xFE))
+	// second write - will write to the original file because currentSize (80) < maximum size (100)
+	n, err = w.Write(makeBuf('B', 30))
+	require.Nil(t, err)
+	require.Equal(t, 30, n)
 
-	rotatedData := readFile(t, f.Name()+"."+now.Format(logr.TimeFormat))
-	require.Nil(t, checkEqual(t, rotatedData, 0xFF))
+	data = readFile(t, f.Name())
+	require.Equal(t, 110, len(data))
+	require.Nil(t, checkEqual(data[80:], 'B'))
+
+	rotatedName := makeDestName(f.Name(), time.Now(), opts)
+
+	// third write - will trigger a rotation
+	n, err = w.Write(makeBuf('C', 50))
+	require.Nil(t, err)
+	require.Equal(t, 50, n)
+
+	// recheck the rotated file to see if it changed
+	data = readFile(t, rotatedName)
+	require.Equal(t, 110, len(data))
+	require.Nil(t, checkEqual(data[:80], 'A'))
+	require.Nil(t, checkEqual(data[80:], 'B'))
+
+	// check the new file
+	data = readFile(t, f.Name())
+	require.Equal(t, 50, len(data))
+	require.Nil(t, checkEqual(data, 'C'))
 }
 
 func TestRotateWithCompression(t *testing.T) {
-	f, err := ioutil.TempFile(os.TempDir(), "logr")
-	require.Nil(t, err)
-
-	rw, err := logr.NewWriterFromFileWithCompression(f)
-	require.Nil(t, err)
-
-	// add some clear text at the beginning of the file
-	text := []byte("This is some clear test at the beginning of the file.")
-
-	now := time.Now()
-	{
-		n, err := rw.Write(text)
-		require.Nil(t, err)
-		require.Equal(t, len(text), n)
-
-		n, err = rw.Write(makeBuf(0xFF))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
-
-		rw.MaxSize(512)
-
-		n, err = rw.Write(makeBuf(0xFE))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
+	f := makeTempFile(t)
+	opts := &Options{
+		MaximumSize: 100,
+		Compress:    true,
 	}
 
-	newData := readFile(t, f.Name())
-	require.Nil(t, checkEqual(t, newData, 0xFE))
-
-	// Need to wait a little because the gzipping is done in the background
-	time.Sleep(500 * time.Millisecond)
-
-	{
-		f, err := os.Open(f.Name() + "." + now.Format(logr.TimeFormat) + ".gz")
-		require.Nil(t, err)
-		require.NotNil(t, f)
-
-		rotatedDataGz, err := ioutil.ReadAll(f)
-		require.Nil(t, err)
-		require.NotEqual(t, 0, len(rotatedDataGz))
-
-		// should not be equal cause it has been gzipped
-		require.NotEqual(t, text, rotatedDataGz[:len(text)])
-
-		// gunzip
-		r, err := gzip.NewReader(bytes.NewReader(rotatedDataGz))
-		require.Nil(t, err)
-
-		gunzip, err := ioutil.ReadAll(r)
-		require.Nil(t, err)
-
-		// should be equal cause now gunzipped
-		require.Equal(t, text, gunzip[:len(text)])
-	}
-}
-
-func TestRotateMaxSizeCustomTimeFormat(t *testing.T) {
-	f, err := ioutil.TempFile(os.TempDir(), "logr")
+	w, err := NewWriterFromFile(f, opts)
 	require.Nil(t, err)
 
-	rw, err := logr.NewWriterFromFile(f)
+	defer removeFile(t, f, w)
+
+	// first write - will always write to the original file
+	n, err := w.Write(makeBuf('A', 80))
 	require.Nil(t, err)
-	rw.TimeFormat("2006__01__02")
+	require.Equal(t, 80, n)
 
-	now := time.Now()
-	{
-		n, err := rw.Write(makeBuf(0xFF))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
+	data := readFile(t, f.Name())
+	require.Equal(t, 80, len(data))
+	require.Nil(t, checkEqual(data, 'A'))
 
-		rw.MaxSize(512)
+	// second write - will write to the original file because currentSize (80) < maximum size (100)
+	n, err = w.Write(makeBuf('B', 30))
+	require.Nil(t, err)
+	require.Equal(t, 30, n)
 
-		n, err = rw.Write(makeBuf(0xFE))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
-	}
+	data = readFile(t, f.Name())
+	require.Equal(t, 110, len(data))
+	require.Nil(t, checkEqual(data[80:], 'B'))
 
-	newData := readFile(t, f.Name())
-	require.Nil(t, checkEqual(t, newData, 0xFE))
+	rotatedName := makeDestName(f.Name(), time.Now(), opts)
 
-	rotatedData := readFile(t, f.Name()+"."+now.Format("2006__01__02"))
-	require.Nil(t, checkEqual(t, rotatedData, 0xFF))
-}
+	// third write - will trigger a rotation
+	n, err = w.Write(makeBuf('C', 50))
+	require.Nil(t, err)
+	require.Equal(t, 50, n)
 
-func TestRotateMaxSizePrefix(t *testing.T) {
-	f, err := ioutil.TempFile(os.TempDir(), "logr")
+	// check the new file
+	data = readFile(t, f.Name())
+	require.Equal(t, 50, len(data))
+	require.Nil(t, checkEqual(data, 'C'))
+
+	// check the gzipped file
+	time.Sleep(1 * time.Second)
+
+	gzName := rotatedName + ".gz"
+	data = readFile(t, gzName)
+	defer os.Remove(gzName)
+
+	gr, err := gzip.NewReader(bytes.NewReader(data))
 	require.Nil(t, err)
 
-	rw, err := logr.NewWriterFromFile(f)
+	data, err = ioutil.ReadAll(gr)
 	require.Nil(t, err)
-	rw.Prefix()
 
-	now := time.Now()
-	{
-		n, err := rw.Write(makeBuf(0xFF))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
-
-		rw.MaxSize(512)
-
-		n, err = rw.Write(makeBuf(0xFE))
-		require.Nil(t, err)
-		require.Equal(t, 1024, n)
-	}
-
-	newData := readFile(t, f.Name())
-	require.Nil(t, checkEqual(t, newData, 0xFE))
-
-	ext := filepath.Ext(f.Name())
-	name := f.Name()[:len(f.Name())-len(ext)]
-	rotatedData := readFile(t, name+"."+now.Format(logr.TimeFormat)+ext)
-	require.Nil(t, checkEqual(t, rotatedData, 0xFF))
+	require.Equal(t, 110, len(data))
+	require.Nil(t, checkEqual(data[:80], 'A'))
+	require.Nil(t, checkEqual(data[80:], 'B'))
 }
