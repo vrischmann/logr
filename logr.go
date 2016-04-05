@@ -177,7 +177,7 @@ func (w *RotatingWriter) rotate() error {
 		if w.compress {
 			go func() {
 				if err := w.compressFile(destName); err != nil {
-					fmt.Printf("unable to compress file '%s'. err=%v", destName, err)
+					fmt.Printf("unable to compress file '%s'. err=%v\n", destName, err)
 					return
 				}
 
@@ -185,7 +185,7 @@ func (w *RotatingWriter) rotate() error {
 				// to its last filename, we can now safely remove
 				// the original uncompressed file.
 				if err := os.Remove(destName); err != nil {
-					fmt.Printf("unable to remove file '%s'. err=%v", destName, err)
+					fmt.Printf("unable to remove file '%s'. err=%v\n", destName, err)
 				}
 			}()
 		}
