@@ -58,7 +58,7 @@ func NewWriterFromFile(file *os.File) (*RotatingWriter, error) {
 		filename:  file.Name(),
 		file:      file,
 		maxSize:   -1,
-		startDate: time.Now(),
+		startDate: time.Now().UTC(),
 	}
 
 	if err := w.readCurrentSize(); err != nil {
@@ -135,7 +135,7 @@ func (w *RotatingWriter) Write(b []byte) (int, error) {
 	defer w.lock.Unlock()
 
 	if w.daily {
-		now := time.Now()
+		now := time.Now().UTC()
 		if now.Day() != w.startDate.Day() {
 			if err := w.rotate(); err != nil {
 				return -1, err
@@ -190,7 +190,7 @@ func (w *RotatingWriter) rotate() error {
 			}()
 		}
 
-		w.startDate = time.Now().Truncate(time.Hour * 24)
+		w.startDate = time.Now().UTC()
 	}
 
 	{
