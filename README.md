@@ -32,6 +32,19 @@ log.SetOutput(w)
 log.Println("foobar")
 ```
 
+Compress the rotated file.
+
+```go
+// Rotate every 500 Mib then compress the file.
+w := logr.NewWriter("/var/log/mylog.log", &logr.Options{
+    MaximumSize: 1024 * 1024 * 500,
+    Compress: true,
+})
+log.SetOutput(w)
+
+log.Println("foobar")
+```
+
 Future work
 -----------
 
