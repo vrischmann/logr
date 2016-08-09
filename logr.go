@@ -16,6 +16,7 @@ const (
 	TimeFormat = "2006-01-02_1504"
 )
 
+// Options allows you to customize tne behavior of a RotatingWriter.
 type Options struct {
 	TimeFormat         string
 	TimeFormatAsPrefix bool
