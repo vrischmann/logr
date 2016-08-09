@@ -220,11 +220,7 @@ func (w *RotatingWriter) compressFile(destName string) (err error) {
 	tmpFile.Close()
 
 	// 4. rename the gzipped file.
-	if err := os.Rename(tmpFile.Name(), destName+".gz"); err != nil {
-		return err
-	}
-
-	return nil
+	return os.Rename(tmpFile.Name(), destName+".gz")
 }
 
 func (w *RotatingWriter) gzip(src *os.File) (f *os.File, err error) {
